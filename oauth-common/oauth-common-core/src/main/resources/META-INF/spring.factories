@@ -1,0 +1,4 @@
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+  com.oauth.jwt.common.core.config.AsyncPoolConfig,\
+  com.oauth.jwt.common.core.config.RedisConfig,\
+  com.oauth.jwt.common.core.util.RedisUtil

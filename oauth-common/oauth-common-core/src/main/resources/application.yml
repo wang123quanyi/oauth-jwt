@@ -1,0 +1,17 @@
+spring:
+  main:
+    #当遇到同样名字的时候，是否允许覆盖注册
+    allow-bean-definition-overriding: true
+    redis:
+      database: 2
+      host: 192.168.1.181
+      jedis:
+        pool:
+          max-active: 8
+          max-idle: 8
+          max-wait: 30000ms
+          min-idle: 1
+      password: campo
+      port: 6379
+      timeout: 6000ms
+

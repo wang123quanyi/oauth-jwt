@@ -1,0 +1,3 @@
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+  com.oauth.jwt.common.data.config.MyBatisPlusConfig,\
+  com.oauth.jwt.common.data.config.RedissonConfig

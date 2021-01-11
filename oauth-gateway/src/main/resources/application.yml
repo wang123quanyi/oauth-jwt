@@ -1,0 +1,50 @@
+spring:
+  main:
+    allow-bean-definition-overriding: true
+  cloud:
+    gateway:
+      routes:
+        - id: oauth-auth
+          uri: lb://oauth-auth
+          predicates:
+            - Path=/auth/**
+          filters:
+            - ImageCodeFilter #自定义过滤器注册
+            - StripPrefix=1
+            - name: Hystrix
+              args:
+                name: factory
+                fallbackUri: forward:/factory
+        - id: oauth-project-biz
+          uri: lb://oauth-project-biz
+          predicates:
+            - Path=/sys/**
+          filters:
+            - StripPrefix=1
+            - name: Hystrix
+              args:
+                name: factory
+                fallbackUri: forward:/factory
+        - id: oauth-bus-biz
+          uri: lb:ws://oauth-bus-biz
+          predicates:
+            - Path=/ws/**
+          filters:
+            - StripPrefix=1
+            - name: Hystrix
+              args:
+                name: factory
+                fallbackUri: forward:/factory
+
+
+# hystrix 信号量隔离，5秒后自动超时
+hystrix:
+  command:
+    default:  #default全局有效，feign id指定应用有效
+      execution:
+        timeout:
+          enabled: true
+        isolation:
+          strategy: SEMAPHORE
+          thread:
+            timeoutInMilliseconds: 5000 #断路器超时时间，默认1000ms
