@@ -1,6 +1,7 @@
 # 开线程跑任务参考如下
-````
 
+###第一种 :synchronized代码快
+````
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import lombok.extern.log4j.Log4j2;
@@ -129,5 +130,151 @@ public class MsgExpireMap implements CommandLineRunner {
 
     }
 
+}
+````
+
+###第二种：Lock->Condition
+````
+import cn.hutool.core.util.StrUtil;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.log4j.Log4j2;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.stereotype.Component;
+
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+
+@Log4j2
+@Component
+@EnableScheduling
+@RequiredArgsConstructor
+public class MsgExpireMap implements CommandLineRunner {
+
+    private static int put = 0;
+    private static int finish = 0;
+    public static final String p = "w";
+    public static final String f = "f";
+    private static volatile int expireTime = 5 * 1000 * 60;
+    private static volatile Lock lock = new ReentrantLock();
+    private static volatile Condition putCon = lock.newCondition();
+    private static volatile Condition readCon = lock.newCondition();
+    private static volatile Condition finishCon = lock.newCondition();
+    public static volatile Map<Long, String> msgMap = new ConcurrentHashMap<>();
+    private SimpleDateFormat ft = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+
+    @Override
+    public void run(String... args) {
+        new MsgThread().start();
+    }
+
+    private class MsgThread extends Thread {
+        @Override
+        public void run() {
+            while (true) {
+                try {
+                    lock.lock();
+                    while (put > 0 || finish > 0) {
+                        readCon.await();
+                    }
+                    Iterator<Map.Entry<Long, String>> iterator = msgMap.entrySet().iterator();
+                    while (iterator.hasNext()) {
+                        Map.Entry<Long, String> next = iterator.next();
+                        Long baseId = next.getKey();
+                        try {
+                            Date date = new Date();
+                            String sendTime = next.getValue();
+                            if (StrUtil.isBlank(sendTime)) {
+                                iterator.remove();
+                            } else {
+                                long timeDiff = date.getTime() - ft.parse(sendTime).getTime();
+                                if (timeDiff >= expireTime) {
+                                    send(baseId);
+                                    iterator.remove();
+                                }
+                            }
+                            while (put > 0 || finish > 0) {
+                                readCon.await();
+                            }
+                        } catch (Exception e) {
+                            log.error("messageMap.entrySet().iterator() 异常  baseId:{}", baseId, e);
+                        }
+                    }
+                    if (msgMap.size() == 0) {
+                        readCon.await();
+                    } else {
+                        readCon.await(10, TimeUnit.SECONDS);
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                } finally {
+                    lock.unlock();
+                }
+            }
+        }
+    }
+
+    public void put(Long baseId, Date sendTime) {
+        try {
+            while (put > 0) synchronized (p) {
+                p.wait();
+            }
+            put++;
+            lock.lock();
+            while (put > 1) {
+                readCon.await();
+            }
+            Thread.sleep(1);
+            msgMap.put(baseId, null == sendTime ? "" : ft.format(sendTime));
+            put--;
+            if (0 < put) {
+                p.notify();
+                putCon.signal();
+            } else {
+                readCon.signal();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            lock.unlock();
+        }
+
+    }
+
+    public void finish(Long baseId) {
+        try {
+            while (finish > 0) synchronized (f) {
+                f.wait();
+            }
+            finish++;
+            lock.lock();
+            while (finish > 1) finishCon.await();
+            Thread.sleep(1);
+            msgMap.put(baseId, "");
+            finish--;
+            if (finish > 0) {
+                f.notify();
+                finishCon.signal();
+            } else {
+                readCon.signal();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            lock.unlock();
+        }
+
+    }
+
+    private void send(Long baseId) {
+        if (null == baseId) return;
+    }
 }
 ````
