@@ -140,6 +140,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.text.SimpleDateFormat;
@@ -164,11 +165,10 @@ public class MsgExpireMap implements CommandLineRunner {
     public static final String f = "f";
     private static volatile int expireTime = 5 * 1000 * 60;
     private static volatile Lock lock = new ReentrantLock();
-    private static volatile Condition putCon = lock.newCondition();
     private static volatile Condition readCon = lock.newCondition();
-    private static volatile Condition finishCon = lock.newCondition();
     public static volatile Map<Long, String> msgMap = new ConcurrentHashMap<>();
     private SimpleDateFormat ft = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+    private SimpleDateFormat now = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss:SSS");
 
     @Override
     public void run(String... args) {
@@ -191,11 +191,14 @@ public class MsgExpireMap implements CommandLineRunner {
                         try {
                             Date date = new Date();
                             String sendTime = next.getValue();
+                            log.info("\n遍历id:{}, 放入时间:{}, 当前时间:{}", baseId, sendTime, now.format(date));
                             if (StrUtil.isBlank(sendTime)) {
+                                log.info("\n移除id:{}, 当前时间:{}", baseId, now.format(date));
                                 iterator.remove();
                             } else {
                                 long timeDiff = date.getTime() - ft.parse(sendTime).getTime();
                                 if (timeDiff >= expireTime) {
+                                    log.info("\n过时id:{}, 放入时间:{}, 当前时间:{}", baseId, sendTime, now.format(date));
                                     send(baseId);
                                     iterator.remove();
                                 }
@@ -207,6 +210,7 @@ public class MsgExpireMap implements CommandLineRunner {
                             log.error("messageMap.entrySet().iterator() 异常  baseId:{}", baseId, e);
                         }
                     }
+                    log.info("\n\n\n");
                     if (msgMap.size() == 0) {
                         readCon.await();
                     } else {
@@ -222,21 +226,17 @@ public class MsgExpireMap implements CommandLineRunner {
     }
 
     public void put(Long baseId, Date sendTime) {
+        log.info("\nput id:{}, 放入时间:{}, 当前时间:{}", baseId, null == sendTime ? null : ft.format(sendTime), now.format(new Date()));
         try {
             while (put > 0) synchronized (p) {
                 p.wait();
             }
             put++;
             lock.lock();
-            while (put > 1) {
-                readCon.await();
-            }
-            Thread.sleep(1);
             msgMap.put(baseId, null == sendTime ? "" : ft.format(sendTime));
             put--;
             if (0 < put) {
                 p.notify();
-                putCon.signal();
             } else {
                 readCon.signal();
             }
@@ -245,23 +245,21 @@ public class MsgExpireMap implements CommandLineRunner {
         } finally {
             lock.unlock();
         }
-
     }
 
     public void finish(Long baseId) {
+        log.info("\nfinish id:{}, 当前时间:{}", baseId, now.format(new Date()));
         try {
             while (finish > 0) synchronized (f) {
                 f.wait();
             }
             finish++;
             lock.lock();
-            while (finish > 1) finishCon.await();
             Thread.sleep(1);
             msgMap.put(baseId, "");
             finish--;
             if (finish > 0) {
                 f.notify();
-                finishCon.signal();
             } else {
                 readCon.signal();
             }
@@ -270,11 +268,29 @@ public class MsgExpireMap implements CommandLineRunner {
         } finally {
             lock.unlock();
         }
-
     }
 
     private void send(Long baseId) {
         if (null == baseId) return;
+    }
+
+    private static Long l = 156489654895L;
+    private static Long j = 255555555553L;
+
+    @Scheduled(cron = "0/20 * * * * ? ")
+    public void te() {
+        for (int i = 0; i < 2; i++) {
+            put(l, new Date());
+            l++;
+        }
+    }
+
+    @Scheduled(cron = "0/30 * * * * ? ")
+    public void finish() {
+        for (int i = 0; i < 3; i++) {
+            finish(j);
+            j++;
+        }
     }
 }
 ````
