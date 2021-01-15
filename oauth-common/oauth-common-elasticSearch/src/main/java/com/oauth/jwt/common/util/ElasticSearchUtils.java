@@ -312,16 +312,10 @@ public class ElasticSearchUtils<T extends Object> {
                     Map.Entry<String, Map<String, String>> next = iterator.next();
                     rangeQueryBuilder = QueryBuilders.rangeQuery(next.getKey());
                     Map<String, String> value = next.getValue();
-                    if (value.containsKey("start")) {
-                        String start = value.get("start");
-                        if (StrUtil.isNotBlank(start))
-                            rangeQueryBuilder.gte(start);
-                    }
-                    if (value.containsKey("end")) {
-                        String end = value.get("end");
-                        if (StrUtil.isNotBlank(end))
-                            rangeQueryBuilder.lte(end);
-                    }
+                    String start = value.get("start");
+                    if (StrUtil.isNotBlank(start)) rangeQueryBuilder.gte(start);
+                    String end = value.get("end");
+                    if (StrUtil.isNotBlank(end)) rangeQueryBuilder.lte(end);
                     searchSourceBuilder.postFilter(rangeQueryBuilder);
                 }
             }
