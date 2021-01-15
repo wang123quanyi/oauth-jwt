@@ -289,6 +289,53 @@ public class ElasticSearchUtils<T extends Object> {
         return result;
     }
 
+    /**
+     * 全词搜索并按范围查找
+     * @param maps maps<key(支持范围搜索的字段),<"start(开始)/end(截止)","2020-12-11">>
+     * @return
+     */
+    public List<Map<String, Object>> rangeMathQuery(String indexName, String orderField, int current, int size, List<Map<String, Map<String, String>>> maps, String fieldValue, String... fieldNames) {
+        current = (current - 1) * size;
+        List<Map<String, Object>> result = new ArrayList<>();
+        try {
+            SearchRequest searchRequest = new SearchRequest();
+            searchRequest.indices(indexName);
+            SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
+            searchSourceBuilder.query(QueryBuilders.multiMatchQuery(fieldValue, fieldNames));
+            for (int i = 0; i < maps.size(); i++) {
+                Map<String, Map<String, String>> stringMapMap = maps.get(i);
+                Iterator<Map.Entry<String, Map<String, String>>> iterator = stringMapMap.entrySet().iterator();
+                while (iterator.hasNext()) {
+                    RangeQueryBuilder rangeQueryBuilder;
+                    Map.Entry<String, Map<String, String>> next = iterator.next();
+                    rangeQueryBuilder = QueryBuilders.rangeQuery(next.getKey());
+                    Map<String, String> value = next.getValue();
+                    if (value.containsKey("start")) {
+                        rangeQueryBuilder.gte(value.get("start"));
+                    }
+                    if (value.containsKey("end")) {
+                        rangeQueryBuilder.lte(value.get("end"));
+                    }
+                    searchSourceBuilder.postFilter(rangeQueryBuilder);
+                }
+            }
+            searchSourceBuilder.from(current);
+            searchSourceBuilder.size(size);
+            if (StrUtil.isNotBlank(orderField)) {
+                searchSourceBuilder.sort(new FieldSortBuilder(orderField).order(SortOrder.DESC)); //指定字段倒叙
+            }
+            searchRequest.source(searchSourceBuilder);
+            SearchResponse search = restClient.search(searchRequest, RequestOptions.DEFAULT);
+            for (SearchHit hit : search.getHits().getHits()) {
+                Map<String, Object> map = hit.getSourceAsMap();
+                result.add(map);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return result;
+    }
+
     public Map<String, Object> getDocumentById(String indexName, String id) {
         GetRequest request = new GetRequest(indexName, id);
         try {
