@@ -36,6 +36,7 @@ import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentType;
 import org.elasticsearch.common.xcontent.json.JsonXContent;
 import org.elasticsearch.index.query.QueryBuilders;
+import org.elasticsearch.index.query.RangeQueryBuilder;
 import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
@@ -291,6 +292,7 @@ public class ElasticSearchUtils<T extends Object> {
 
     /**
      * 全词搜索并按范围查找
+     *
      * @param maps maps<key(支持范围搜索的字段),<"start(开始)/end(截止)","2020-12-11">>
      * @return
      */
@@ -311,10 +313,14 @@ public class ElasticSearchUtils<T extends Object> {
                     rangeQueryBuilder = QueryBuilders.rangeQuery(next.getKey());
                     Map<String, String> value = next.getValue();
                     if (value.containsKey("start")) {
-                        rangeQueryBuilder.gte(value.get("start"));
+                        String start = value.get("start");
+                        if (StrUtil.isNotBlank(start))
+                            rangeQueryBuilder.gte(start);
                     }
                     if (value.containsKey("end")) {
-                        rangeQueryBuilder.lte(value.get("end"));
+                        String end = value.get("end");
+                        if (StrUtil.isNotBlank(end))
+                            rangeQueryBuilder.lte(end);
                     }
                     searchSourceBuilder.postFilter(rangeQueryBuilder);
                 }
