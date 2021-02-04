@@ -21,7 +21,7 @@ public class DelayRabbitConfig {
     /**
      * 延迟队列 TTL 名称
      */
-    private static final String ORDER_DELAY_QUEUE = "user.order.delay.queue";
+    public static final String ORDER_DELAY_QUEUE = "user.order.delay.queue";
     /**
      * DLX，dead letter发送到的 exchange
      * 延时消息就是发送到该交换机的
