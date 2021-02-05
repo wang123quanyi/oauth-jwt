@@ -3,8 +3,9 @@ package com.oauth.jwt.common.mq.util;
 import cn.hutool.core.util.StrUtil;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
+import com.rabbitmq.client.Channel;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import lombok.extern.log4j.Log4j2;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.Queue;
@@ -18,14 +19,17 @@ import org.springframework.stereotype.Component;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
-@Slf4j
+@Log4j2
 @Component
 @RequiredArgsConstructor
 public class TestCreate implements CommandLineRunner {
+
+    private final Channel channel;
     private final RabbitAdmin rabbitAdmin;
     private final RabbitTemplate rabbitTemplate;
     private static SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss:SSS");
     public static Map<Integer, Set<Integer>> touchHours = new HashMap<>();
+    public static List<String> queues = new ArrayList<>();
     private static Map<String, Object> params;
 
     static {
@@ -36,47 +40,47 @@ public class TestCreate implements CommandLineRunner {
 
     @Override
     public void run(String... args) throws Exception {
+        log.info("\n{}", config.math);
         if (0 == touchHours.size()) createTouchHours(true);
-        te();
+        cleanQueue();
+//        te();
     }
 
-    //    @Scheduled(cron = "0/10 * * * * ? ")
+
+    @RabbitListener(queues = (config.QUEUE_NAME), containerFactory = "rabbitListenerContainerFactory")
+    public void listener(@Payload String reqString) {
+        System.out.println("\n得到触发节点监听的消息 - 消费时间:" + sdf.format(new Date()) + ",delay - reqString:" + reqString);
+        try {
+            if (0 == touchHours.size()) createTouchHours(false);
+            JSONObject jsonObject = JSON.parseObject(reqString);
+            Integer rulePage = jsonObject.getInteger("allocationRulePage");
+            Integer stage = jsonObject.getInteger("stage");
+            if (null == stage) stage = 0;
+            stage = stage + 1;
+            Set<Integer> integers = touchHours.get(rulePage);
+            if (null != integers && 0 != integers.size() && integers.contains(stage)) {
+                String exchange = config.delayExchangeBegin + stage + rulePage + "." + config.math;
+                jsonObject.put("stage", stage);
+                this.rabbitTemplate.convertAndSend(exchange, config.delayRoutingKey, jsonObject.toJSONString());
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    //    @Scheduled(cron = "0/20 * * * * ? ")
     public void te() throws Exception {
-        Long l = 1256489674896L;
+        Long l = 5556489674896L;
         Iterator<Map.Entry<Integer, Set<Integer>>> iterator = touchHours.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<Integer, Set<Integer>> next = iterator.next();
             Integer rulePage = next.getKey();
             Iterator<Integer> iterator1 = next.getValue().iterator();
             while (iterator1.hasNext()) {
-                Integer next1 = iterator1.next();
-                String s = "15646848964";
-                String exchange = rulePage + "." + config.delayExchangeName + "." + next1;
-                this.rabbitTemplate.convertAndSend(exchange, config.delayRoutingKey, s);
+                String exchange = config.delayExchangeBegin + iterator1.next() + rulePage + "." + config.math;
+                this.rabbitTemplate.convertAndSend(exchange, config.delayRoutingKey, "s");
+                l++;
             }
-        }
-    }
-
-    @RabbitListener(queues = (config.QUEUE_NAME), containerFactory = "rabbitListenerContainerFactory")
-    public void otherDelayQueue(@Payload String reqString) {
-        System.out.println("\ntest delay 得到其他触发节点监听的消息 - 消费时间:" + sdf.format(new Date()) + ",delay - reqString:" + reqString);
-        try {
-            JSONObject jsonObject = JSON.parseObject(reqString);
-            Integer rulePage = jsonObject.getInteger("allocationRulePage");
-            Integer stage = jsonObject.getInteger("stage");
-            if (null == stage) stage = 0;
-            stage = stage + 1;
-            if (0 == touchHours.size()) createTouchHours(false);
-            Set<Integer> integers = touchHours.get(rulePage);
-            if (null != integers && 0 != integers.size() && integers.contains(stage)) {
-                String exchange = rulePage + "." + config.delayExchangeName + "." + stage;
-                jsonObject.put("stage", stage);
-                this.rabbitTemplate.convertAndSend(exchange, config.delayRoutingKey, jsonObject.toJSONString());
-            }
-            //推送、验证
-            System.out.println("########test delay###########得到其他触发节点########################");
-        } catch (Exception e) {
-            e.printStackTrace();
         }
     }
 
@@ -121,16 +125,36 @@ public class TestCreate implements CommandLineRunner {
                     if (0 < i) {
                         integer = integer - integers.get(i - 1);
                     }
-                    String delayQueueName = "delay.queue." + rulePage + "." + i;
+                    String key = i + "" + rulePage + "." + config.math;
+                    queues.add(key);
+                    String delayQueueName = config.delayQueueBegin + key;
                     params.put("x-message-ttl", integer);
-                    Queue queue = new Queue(delayQueueName, true, false, false, params);
-                    rabbitAdmin.declareQueue(queue);
-                    DirectExchange directExchange = new DirectExchange(rulePage + "." + config.delayExchangeName + "." + i);
-                    rabbitAdmin.declareExchange(directExchange);
-                    rabbitAdmin.declareBinding(BindingBuilder.bind(queue).to(directExchange).with(config.delayRoutingKey));
+                    try {
+                        Queue queue = new Queue(delayQueueName, true, false, false, params);
+                        rabbitAdmin.declareQueue(queue);
+                        DirectExchange directExchange = new DirectExchange(config.delayExchangeBegin + key);
+                        rabbitAdmin.declareExchange(directExchange);
+                        rabbitAdmin.declareBinding(BindingBuilder.bind(queue).to(directExchange).with(config.delayRoutingKey));
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
                 }
             }
             touchHours.put(rulePage, set);
         }
+    }
+
+    private void cleanQueue() {
+        List<Object> queue1 = new ArrayList<>();
+        try {
+            for (int i = 0; i < queue1.size(); i++) {
+                String key = (String) queue1.get(i);
+                channel.queueDelete(config.delayQueueBegin + key, false, true);
+                channel.exchangeDelete(config.delayExchangeBegin + key);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        queue1.addAll(queues);
     }
 }
