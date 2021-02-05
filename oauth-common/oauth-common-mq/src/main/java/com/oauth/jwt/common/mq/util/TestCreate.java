@@ -43,7 +43,7 @@ public class TestCreate implements CommandLineRunner {
         log.info("\n{}", config.math);
         if (0 == touchHours.size()) createTouchHours(true);
         cleanQueue();
-//        te();
+        te();
     }
 
 
@@ -59,7 +59,7 @@ public class TestCreate implements CommandLineRunner {
             stage = stage + 1;
             Set<Integer> integers = touchHours.get(rulePage);
             if (null != integers && 0 != integers.size() && integers.contains(stage)) {
-                String exchange = config.delayExchangeBegin + stage + rulePage + "." + config.math;
+                String exchange = config.delayExchangeBegin + rulePage + "." + stage + "." + config.math;
                 jsonObject.put("stage", stage);
                 this.rabbitTemplate.convertAndSend(exchange, config.delayRoutingKey, jsonObject.toJSONString());
             }
@@ -125,7 +125,7 @@ public class TestCreate implements CommandLineRunner {
                     if (0 < i) {
                         integer = integer - integers.get(i - 1);
                     }
-                    String key = i + "" + rulePage + "." + config.math;
+                    String key = rulePage + "." + i + "." + config.math;
                     queues.add(key);
                     String delayQueueName = config.delayQueueBegin + key;
                     params.put("x-message-ttl", integer);
@@ -149,8 +149,14 @@ public class TestCreate implements CommandLineRunner {
         try {
             for (int i = 0; i < queue1.size(); i++) {
                 String key = (String) queue1.get(i);
-                channel.queueDelete(config.delayQueueBegin + key, false, true);
-                channel.exchangeDelete(config.delayExchangeBegin + key);
+                try {
+                    channel.queueDelete(config.delayQueueBegin + key, false, true);
+                } catch (Exception e) {
+                }
+                try {
+                    channel.exchangeDelete(config.delayExchangeBegin + key);
+                } catch (Exception e) {
+                }
             }
         } catch (Exception e) {
             e.printStackTrace();
