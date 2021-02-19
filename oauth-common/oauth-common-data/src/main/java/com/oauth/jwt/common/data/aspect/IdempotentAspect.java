@@ -1,6 +1,6 @@
 package com.oauth.jwt.common.data.aspect;
 
-import cn.hutool.crypto.digest.MD5;
+import cn.hutool.core.codec.Base64;
 import cn.hutool.json.JSONUtil;
 import com.oauth.jwt.common.data.annotation.Idempotent;
 import lombok.extern.slf4j.Slf4j;
@@ -60,15 +60,10 @@ public class IdempotentAspect {
 
     private Object getResult(ProceedingJoinPoint joinPoint, int value) throws Throwable {
         String argsJsonStr = JSONUtil.toJsonStr(joinPoint.getArgs());
-        log.info("\nargsJsonStr:{}", argsJsonStr);
         HttpServletRequest request = ((ServletRequestAttributes) RequestContextHolder.getRequestAttributes()).getRequest();
-        String requestURI = request.getRequestURI();
-        log.info("\nrequestURI:{}", requestURI);
-        String ip = getIp(request);
-        log.info("\nip:{}", ip);
-        String lockName = new StringBuffer(requestURI).append(":").append(ip).append(argsJsonStr).toString();
+        String lockName = new StringBuffer(request.getRequestURI()).append(":").append(getIp(request)).append(argsJsonStr).toString();
         log.info("\nlockName:{}", lockName);
-        String key = MD5.create().digestHex(lockName.getBytes());
+        String key = Base64.encode(lockName.getBytes());
         RMapCache<Object, Object> mapCache = redisson.getMapCache(RMAPCACHE_KEY);
         Object result = mapCache.get(key);
         if (result == null) {
