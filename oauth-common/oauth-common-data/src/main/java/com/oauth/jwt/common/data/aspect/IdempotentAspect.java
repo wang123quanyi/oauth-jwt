@@ -8,11 +8,9 @@ import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Pointcut;
-import org.aspectj.lang.reflect.MethodSignature;
 import org.redisson.Redisson;
 import org.redisson.api.RLock;
 import org.redisson.api.RMapCache;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
@@ -20,7 +18,6 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
-import java.lang.reflect.Parameter;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
@@ -31,7 +28,6 @@ public class IdempotentAspect {
 
     @Resource
     private Redisson redisson;
-    private MD5 md5 = MD5.create();
     private String RMAPCACHE_KEY = "idempotent";
     private static ThreadLocal<String> idempotent = new ThreadLocal<>();
 
@@ -46,9 +42,7 @@ public class IdempotentAspect {
         if (!isDoing()) {
             try {
                 doing();
-                HttpServletRequest request = ((ServletRequestAttributes) RequestContextHolder.getRequestAttributes()).getRequest();
-                String lockName = new StringBuffer(request.getRequestURI()).append(":").append(getIp(request)).toString();
-                result = getResult(joinPoint,lockName,idempotent);
+                result = getResult(joinPoint, idempotent.value() * 1000);
             } catch (Throwable e) {
                 throw new RuntimeException(e);
             } finally {
@@ -64,20 +58,28 @@ public class IdempotentAspect {
         return result;
     }
 
-    private Object getResult(ProceedingJoinPoint joinPoint, String lockName, Idempotent idempotent) throws Throwable {
+    private Object getResult(ProceedingJoinPoint joinPoint, int value) throws Throwable {
+        String argsJsonStr = JSONUtil.toJsonStr(joinPoint.getArgs());
+        log.info("\nargsJsonStr:{}", argsJsonStr);
+        HttpServletRequest request = ((ServletRequestAttributes) RequestContextHolder.getRequestAttributes()).getRequest();
+        String requestURI = request.getRequestURI();
+        log.info("\nrequestURI:{}", requestURI);
+        String ip = getIp(request);
+        log.info("\nip:{}", ip);
+        String lockName = new StringBuffer(requestURI).append(":").append(ip).append(argsJsonStr).toString();
+        log.info("\nlockName:{}", lockName);
+        String key = MD5.create().digestHex(lockName.getBytes());
         RMapCache<Object, Object> mapCache = redisson.getMapCache(RMAPCACHE_KEY);
-        String key = md5.digestHex(new StringBuffer(lockName).append(JSONUtil.toJsonStr(joinPoint.getArgs())).toString().getBytes());
         Object result = mapCache.get(key);
         if (result == null) {
-            RLock lock = redisson.getLock(lockName);
+            RLock lock = redisson.getLock(key);
             try {
-                int value =  idempotent.value() * 1000;
                 lock.lock(value, TimeUnit.MILLISECONDS);
                 result = mapCache.get(key);
                 if (result != null) {
                     return result;
                 }
-                result = joinPoint.proceed(joinPoint.getArgs());
+                result = joinPoint.proceed();
                 if (result != null) {
                     mapCache.putIfAbsent(key, result, value - 50, TimeUnit.MILLISECONDS);
                 }
